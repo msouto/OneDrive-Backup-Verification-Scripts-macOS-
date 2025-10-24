@@ -1,0 +1,4 @@
+# Dependências do sistema
+# Instale com Homebrew (https://brew.sh)
+rsync
+pv
