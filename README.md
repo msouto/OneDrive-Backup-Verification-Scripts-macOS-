@@ -1,156 +1,130 @@
-# 🧩 Sistema de Backup e Sincronização Local — OneDrive (macOS)
+# ☁️ OneDrive Backup & Verification Scripts (macOS)
 
-Este repositório contém um conjunto de **scripts utilitários para verificação, reparo e sincronização de backups locais do Microsoft OneDrive**, desenvolvidos para uso em ambientes de laboratório e servidores macOS (como o Mac Mini do CCSL-IFRN).
+Este repositório contém **scripts shell avançados** para **backup incremental**, **verificação de integridade**, **sincronização local** e **reparo automatizado** de pastas do **Microsoft OneDrive** no macOS.
 
-Os scripts automatizam a detecção e correção de inconsistências geradas pelo sistema **Files On-Demand**, garantindo que os arquivos estejam fisicamente disponíveis antes de qualquer cópia ou sincronização via `rsync`.
-
----
-
-## 📘 Sumário
-
-1. [Visão Geral](#visão-geral)
-2. [Scripts Disponíveis](#scripts-disponíveis)
-   - [`repara_copia.sh`](#1-repara_copiash)
-   - [`materializa_nuvem.sh`](#2-materializa_nuvemsh)
-   - [`forcar_materializar_nuvem.sh`](#3-forcar_materializar_nuvemsh)
-3. [Fluxo de Operação Recomendado](#⚡-fluxo-de-operação-recomendado)
-4. [Requisitos](#🧰-requisitos)
-5. [Estrutura de Diretórios](#📦-estrutura-de-diretórios)
-6. [Histórico de Alterações](#🧾-histórico-de-alterações)
-7. [Créditos e Contexto](#🧠-créditos-e-contexto)
-8. [Licença](#⚖️-licença)
+Os scripts foram desenvolvidos para o ambiente do **CCSL-IFRN**, integrando-se ao ecossistema de automação de backup do **Mac Mini de laboratório** e garantindo a integridade de dados sincronizados com a nuvem.
 
 ---
 
-## 📖 Visão Geral
+## 📦 Scripts Incluídos
 
-O objetivo deste projeto é garantir **cópias locais confiáveis** do OneDrive, permitindo sincronização incremental, auditoria e recuperação de dados mesmo quando os arquivos originais estão disponíveis apenas como *placeholders* (arquivos sob demanda).
+### 🔹 `copiar_onedrive_interativo_progress.sh`
 
-Esses scripts foram criados no contexto de infraestrutura do **CCSL-IFRN** para o controle de versões e preservação de dados de projetos como **Samanaú**, **Constelação Potiguar (GOLDS)** e integrações com o **INPE**.
+Realiza **backup incremental** e/ou **sincronização completa** de pastas do OneDrive para um volume externo.
 
----
-
-## 🧩 Scripts Disponíveis
-
-### 1. `repara_copia.sh`
-
-Script principal responsável por **analisar logs de verificação** e **reparar arquivos ausentes** no backup.
-
-#### 🔍 Funcionalidades
-
-- Lê automaticamente o log mais recente (`verificacao_backup_*.log`);
-- Extrai **origem** e **destino** diretamente do relatório (`📂 Verificando:` e `🔗 Comparando com backup:`);  
-- Suporta dois formatos de log:
-  - saída padrão do `rsync --itemize-changes` (`>f...`);
-  - bloco textual `⚠️ Arquivos ausentes no backup:` com caminhos absolutos;
-- Copia apenas os arquivos faltantes (`rsync --files-from`);
-- Ignora arquivos de sistema e metadados (`.DS_Store`, `.Trash`, `.Spotlight-V100`, etc.);
-- Gera log detalhado em:
-  ```
-  ~/Documents/onedrive_reparo_YYYY-MM-DD_HHMMSS.log
-  ```
-- Executa verificação pós-reparo (`rsync --dry-run`) para confirmar integridade.
-
-#### 🧭 Uso
-
-```bash
-sh repara_copia.sh
-# ou
-./repara_copia.sh
-```
-
-Durante a execução:
-1. Lista os logs disponíveis (ordem decrescente);
-2. Solicita qual log utilizar;
-3. Detecta origem e destino;
-4. Exibe prévia dos faltantes e pede confirmação;
-5. Inicia o reparo e acompanha o progresso.
-
-> ⚠️ Execute **após materializar os arquivos** com `materializa_nuvem.sh`.
+**Recursos:**
+- Detecta automaticamente múltiplas contas OneDrive locais;
+- Permite selecionar backup existente ou criar novo;
+- Exibe **barra de progresso em tempo real** (`pv`);
+- Gera logs detalhados com data/hora no HD externo;
+- Compatível com **openrsync (nativo)** e **rsync (Homebrew)**.
 
 ---
 
-### 2. `materializa_nuvem.sh`
+### 🔹 `verificar_backup_onedrive_interativo_progress.sh`
 
-Garante que todos os arquivos do OneDrive estejam **fisicamente armazenados no disco local**, evitando falhas do tipo:
+Compara origem e backup, verificando diferenças de **nomes e tamanhos** de arquivos.
 
-```
-stat: No such file or directory
-```
+**Recursos:**
+- Analisa múltiplos diretórios OneDrive;
+- Lista discrepâncias de forma legível;
+- Gera relatórios de inconsistência (`relatorio_backup_*.log`);
+- Compatível com os scripts de reparo (`repara_copia.sh`).
 
-causadas por arquivos disponíveis apenas como *placeholders* do **Files On-Demand**.
+---
 
-#### ⚙️ Funções
+### 🔹 `repara_copia.sh`
 
-- Usa `fileproviderctl` para forçar o download completo do conteúdo;
-- Aceita como argumento o caminho da pasta sincronizada do OneDrive;
-- Pode ser interrompido e retomado sem perdas.
+Repara automaticamente os arquivos ausentes no backup com base nos relatórios de verificação (`verificacao_backup_*.log`).
 
-#### 🧭 Uso
+**Principais funções:**
+- Lê logs e extrai origem/destino;
+- Identifica faltantes via `rsync` ou via bloco textual `⚠️ Arquivos ausentes no backup:`;
+- Copia apenas os arquivos que não estão no backup;
+- Ignora arquivos de sistema (`.DS_Store`, `.Trash`, etc.);
+- Gera log de reparo em `~/Documents/onedrive_reparo_YYYY-MM-DD_HHMMSS.log`;
+- Executa verificação pós-reparo (`rsync --dry-run`).
 
+---
+
+### 🔹 `materializa_nuvem.sh`
+
+Força a **materialização local** (download físico) de todos os arquivos sob demanda do OneDrive.
+
+**Uso:**
 ```bash
 sudo sh materializa_nuvem.sh "/Users/<usuario>/Library/CloudStorage/OneDrive-IFRN"
 ```
 
-#### 🧩 Internamente Executa
-
-```bash
-fileproviderctl domains
-fileproviderctl materialize -r "/Users/<usuario>/Library/CloudStorage/OneDrive-IFRN"
-fileproviderctl list -n
+Evita erros do tipo:
+```
+stat: No such file or directory
 ```
 
 ---
 
-### 3. `forcar_materializar_nuvem.sh`
+### 🔹 `forcar_materializar_nuvem.sh`
 
-Versão automática e robusta do script anterior, que **detecta todos os domínios ativos** (`OneDrive`, `iCloudDrive`, `GoogleDrive`, etc.) e executa materialização recursiva em todos.
+Versão automática que materializa todos os provedores (`OneDrive`, `iCloudDrive`, etc.) detectados no sistema.
 
-#### 🚀 Recursos
-
-- Detecção automática de domínios via `fileproviderctl domains`;
-- Materialização paralela de múltiplos provedores;
-- Checagem de status e reexecução até 100% dos arquivos localizados;
-- Compatível com agendamento via `cron` ou `launchd`.
-
-#### 🧭 Uso
-
-```bash
-sudo ./forcar_materializar_nuvem.sh
-```
-
-> Ideal para execução periódica antes das rotinas de backup automatizado.
+**Recursos:**
+- Usa `fileproviderctl domains` e `fileproviderctl materialize -r`;
+- Executa em múltiplos domínios;
+- Pode ser agendado via `cron` ou `launchd`.
 
 ---
 
-## ⚡ Fluxo de Operação Recomendado
+## 🚀 Requisitos
+
+As dependências estão listadas em [`requirements.txt`](./requirements.txt):
 
 ```bash
-# 1️⃣ Baixar todos os placeholders (garante que os arquivos existam fisicamente)
-sudo ./materializa_nuvem.sh "/Users/moisessouto/Library/CloudStorage/OneDrive-IFRN"
-
-# 2️⃣ Verificar backup existente
-./verifica_copia.sh
-
-# 3️⃣ Reparo automático de faltantes
-./repara_copia.sh
+# Dependências do sistema
+# Instale com Homebrew (https://brew.sh)
+rsync
+pv
 ```
 
-Opcionalmente, use `forcar_materializar_nuvem.sh` para abranger múltiplos provedores em uma única execução.
+Adicionalmente:
+- macOS 13+ (Ventura ou superior);
+- `fileproviderctl` nativo para controle de sincronização;
+- Permissão de **Acesso Total ao Disco** para o Terminal.
 
 ---
 
-## 🧰 Requisitos
+## 📘 Como Usar
 
-| Dependência | Descrição | Instalação |
-|--------------|------------|-------------|
-| **macOS 13+** | Suporte nativo a FileProvider (OneDrive moderno) | Nativo |
-| **rsync 3.x** | Compatível com `--protect-args` e `--whole-file` | `brew install rsync` |
-| **fileproviderctl** | Controle de sincronização e domínios no macOS | Nativo |
-| **rclone (opcional)** | Sincronização direta na nuvem (fallback) | `brew install rclone` |
+1. Dê permissão de execução:
+   ```bash
+   chmod +x copiar_onedrive_interativo_progress.sh verificar_backup_onedrive_interativo_progress.sh
+   ```
 
-> 🔒 Conceda **Acesso Total ao Disco** ao Terminal em:  
-> Preferências do Sistema → Privacidade → Acesso Total ao Disco.
+2. Execute o backup:
+   ```bash
+   bash copiar_onedrive_interativo_progress.sh
+   ```
+
+3. Verifique a integridade:
+   ```bash
+   bash verificar_backup_onedrive_interativo_progress.sh
+   ```
+
+4. Repare arquivos faltantes (se houver):
+   ```bash
+   bash repara_copia.sh
+   ```
+
+---
+
+## 🧩 Funcionalidades Gerais
+
+- 🧭 Detecção automática de contas e pastas OneDrive locais;  
+- 🔁 Sincronização incremental com verificação de tamanho e data;  
+- ⏳ Exibição de barra de progresso (`pv`);  
+- 🪶 Suporte total a `openrsync` e `rsync 3.x`;  
+- 🧾 Geração de logs legíveis e datados;  
+- 🔐 Compatibilidade total com o sistema de segurança do macOS;  
+- ⚙️ Reparo automatizado de backups incompletos.
 
 ---
 
@@ -158,14 +132,34 @@ Opcionalmente, use `forcar_materializar_nuvem.sh` para abranger múltiplos prove
 
 ```text
 OneDrive/
-├── verifica_copia.sh
+├── copiar_onedrive_interativo_progress.sh
+├── verificar_backup_onedrive_interativo_progress.sh
 ├── repara_copia.sh
 ├── materializa_nuvem.sh
 ├── forcar_materializar_nuvem.sh
+├── requirements.txt
 └── logs/
     ├── verificacao_backup_2025-10-30_17-40.log
     ├── verificacao_backup_2025-10-29_11-03.log
     └── relatorio_backup_2025-10-24_18-10.log
+```
+
+---
+
+## ⚡ Fluxo Completo de Backup e Verificação
+
+```bash
+# 1️⃣ Materializar todos os arquivos do OneDrive (evita placeholders)
+sudo ./materializa_nuvem.sh "/Users/moisessouto/Library/CloudStorage/OneDrive-IFRN"
+
+# 2️⃣ Executar backup incremental com barra de progresso
+bash copiar_onedrive_interativo_progress.sh
+
+# 3️⃣ Verificar integridade do backup
+bash verificar_backup_onedrive_interativo_progress.sh
+
+# 4️⃣ Reparo automático (caso faltem arquivos)
+bash repara_copia.sh
 ```
 
 ---
@@ -175,8 +169,8 @@ OneDrive/
 | Data | Alteração |
 |------|------------|
 | **2025-10-30** | Inclusão dos scripts `repara_copia.sh`, `materializa_nuvem.sh` e `forcar_materializar_nuvem.sh` |
-| **2025-10-29** | Revisão dos relatórios de verificação (`verifica_copia_v2.sh`) |
-| **2025-10-24** | Estrutura inicial de automação de backup local do OneDrive |
+| **2025-10-24** | Criação dos scripts `copiar_onedrive_interativo_progress.sh` e `verificar_backup_onedrive_interativo_progress.sh` |
+| **2025-10-24** | Adicionado arquivo `requirements.txt` com dependências do sistema |
 
 ---
 
@@ -185,14 +179,9 @@ OneDrive/
 Desenvolvido por **Moisés Souto** no âmbito do  
 **CCSL-IFRN — Centro de Competências em Soluções Livres**
 
-Esses utilitários integram o ecossistema de scripts de engenharia e automação  
-do laboratório, otimizando o gerenciamento de dados científicos e administrativos  
-entre múltiplos provedores de nuvem.
-
 ---
 
 ## ⚖️ Licença
 
-Distribuído sob a licença **MIT**.  
-Você pode usar, modificar e redistribuir este software livremente,  
-desde que mantenha a atribuição de autoria.
+MIT License — uso livre para fins pessoais e acadêmicos.  
+Ao reutilizar este código, mantenha a atribuição de autoria original.
