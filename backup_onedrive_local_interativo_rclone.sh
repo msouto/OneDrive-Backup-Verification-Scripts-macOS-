@@ -5,49 +5,41 @@
 # - Escolhe volume/pasta de destino
 # - Checa espaço livre (origem + 10%)
 # - Copia com rclone e verifica (check one-way)
-# Requer: rclone, awk, df, find, stat
+# Requer: rclone, awk, df, find, stat, sed
 
 set -eu
 
-die() { printf '%s\n' "ERRO: $*" >&2; exit 1; }
-hr() { printf '%s\n' "--------------------------------------------------------------------------------"; }
+die(){ printf '%s\n' "ERRO: $*" >&2; exit 1; }
+hr(){ printf '%s\n' "--------------------------------------------------------------------------------"; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "Dependência ausente: $1"; }
 
-need() { command -v "$1" >/dev/null 2>&1 || die "Dependência ausente: $1"; }
-
-human_bytes() {
-  # uso: human_bytes <bytes>
-  # conversão simples em awk (B,K,M,G,T,P)
+human_bytes(){
   printf '%s\n' "$1" | awk 'function human(x){
     s="BKMGTP"; while (x>=1024 && length(s)>1){x/=1024; s=substr(s,2)}
     return int(x+0.5) substr(s,1,1)} {print human($1)}'
 }
 
-bytes_free() {
+bytes_free(){
   # bytes livres no filesystem do caminho passado
-  # POSIX df -kP: segunda linha coluna 4 = blocos livres em KB
   df -kP "$1" | awk 'NR==2{print $4*1024}'
 }
 
-size_bytes_rclone() {
-  # tenta obter bytes com rclone size --json
-  # devolve vazio se não conseguir
-  rclone size "$1" --json 2>/dev/null | awk -F'[:,}]' '/bytes/ {gsub(/[[:space:]]/,"",$3); print $3; exit}'
+size_bytes_rclone(){
+  # Retorna apenas o número de bytes do JSON (sem precisar de jq)
+  # Ex.: {"count":123,"bytes":456789}
+  rclone size "$1" --json 2>/dev/null \
+  | sed -n 's/.*"bytes"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+  | head -n1
 }
 
-size_bytes_du() {
-  # fallback: du -sk (KB) -> bytes
-  du -sk "$1" | awk '{print $1*1024}'
-}
+is_uint(){ case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
-prompt_num() {
-  # lê número; falha se vazio
-  read -r ans || true
-  [ -n "${ans:-}" ] || die "Entrada vazia."
-  printf '%s' "$ans"
-}
+size_bytes_du(){ du -sk "$1" | awk '{print $1*1024}'; }
+
+prompt_num(){ read -r ans || true; [ -n "${ans:-}" ] || die "Entrada vazia."; printf '%s' "$ans"; }
 
 # ----------------- Checagens iniciais -----------------
-need rclone; need awk; need df; need find; need stat
+need rclone; need awk; need df; need find; need stat; need sed
 CLOUD="$HOME/Library/CloudStorage"
 
 printf '[INFO] Iniciando backup interativo OneDrive → HD externo\n'
@@ -64,9 +56,7 @@ printf 'Selecione o OneDrive de origem:\n'
 nl -ba "$ODLIST" | sed 's/^/  /'
 printf "Número [1-$(wc -l < "$ODLIST")]: "
 CHOICE="$(prompt_num)"
-case "$CHOICE" in
-  *[!0-9]*|'') die "Escolha inválida." ;;
-esac
+case "$CHOICE" in *[!0-9]*|'') die "Escolha inválida.";; esac
 TOTAL="$(wc -l < "$ODLIST")"
 [ "$CHOICE" -ge 1 ] && [ "$CHOICE" -le "$TOTAL" ] || die "Escolha fora do intervalo."
 SRC_ROOT="$(sed -n "${CHOICE}p" "$ODLIST")"
@@ -85,7 +75,7 @@ if [ "$SOPT" = "2" ]; then
   nl -ba "$SUBLIST" | sed 's/^/  /'
   printf 'Número da subpasta: '
   SCH="$(prompt_num)"
-  case "$SCH" in *[!0-9]*|'') die "Escolha inválida." ;; esac
+  case "$SCH" in *[!0-9]*|'') die "Escolha inválida.";; esac
   TOT2="$(wc -l < "$SUBLIST")"
   [ "$SCH" -ge 1 ] && [ "$SCH" -le "$TOT2" ] || die "Escolha fora do intervalo."
   SRC="$(sed -n "${SCH}p" "$SUBLIST")"
@@ -106,7 +96,7 @@ printf '[INFO] Volumes encontrados em /Volumes:\n'
 nl -ba "$VOLLIST" | sed 's/^/  /'
 printf "Selecione o volume de destino [1-$(wc -l < "$VOLLIST")]: "
 VCH="$(prompt_num)"
-case "$VCH" in *[!0-9]*|'') die "Escolha inválida." ;; esac
+case "$VCH" in *[!0-9]*|'') die "Escolha inválida.";; esac
 VTOT="$(wc -l < "$VOLLIST")"
 [ "$VCH" -ge 1 ] && [ "$VCH" -le "$VTOT" ] || die "Escolha fora do intervalo."
 DEST_VOL="$(sed -n "${VCH}p" "$VOLLIST")"
@@ -124,14 +114,22 @@ hr
 # ------------- Estimar tamanho / checar espaço --------
 printf '[INFO] Estimando tamanho da origem...\n'
 SRC_BYTES="$(size_bytes_rclone "$SRC" || true)"
-if [ -z "${SRC_BYTES:-}" ]; then
-  printf '[WARN] rclone size (json) indisponível; usando du (mais lento)...\n'
+
+# Se vier vazio ou não numérico, usar du -sk
+if ! is_uint "${SRC_BYTES:-}"; then
+  printf '[WARN] rclone size (json) não retornou número; usando du -sk (mais lento)...\n'
   SRC_BYTES="$(size_bytes_du "$SRC")"
 fi
+
 FREE_BYTES="$(bytes_free "$DEST_VOL")"
 
 printf '[INFO] Origem: %s\n' "$(human_bytes "$SRC_BYTES")"
 printf '[INFO] Livre no destino (%s): %s\n' "$DEST_VOL" "$(human_bytes "$FREE_BYTES")"
+
+# Guarda-chuva: se por algum motivo ainda não for numérico, aborta com instrução
+if ! is_uint "${SRC_BYTES:-}"; then
+  die "Não foi possível estimar o tamanho da origem. Rode: du -sh \"$SRC\" manualmente e tente novamente."
+fi
 
 NEEDED=$(( SRC_BYTES + SRC_BYTES/10 ))  # +10% margem
 if [ "$FREE_BYTES" -lt "$NEEDED" ]; then
@@ -149,7 +147,6 @@ LOG_COPY="$LOG_DIR/rclone_localcopy_${STAMP}.log"
 LOG_CHECK="$LOG_DIR/rclone_check_${STAMP}.log"
 mkdir -p "$LOG_DIR"
 
-# exclusões
 EXC="--exclude .DS_Store --exclude ._* --exclude .Spotlight-V100/** --exclude .Trashes/** --exclude .fseventsd/**"
 
 TRANSFERS="${TRANSFERS:-8}"
